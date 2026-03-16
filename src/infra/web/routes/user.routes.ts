@@ -12,6 +12,9 @@ import { uploadUserAvatarSchema } from "./schemas/authentication/upload-user-ava
 import { UploadUserAvatarController } from "../controllers/user/upload-user-avatar.controller";
 
 export const configure = (fastify: FastifyInstance) => {
+  /** Cast para evitar erro de tipagem do Fastify 5 (route espera 0 args na definição). */
+  const route = (fastify as FastifyInstance & { route(opts: object): void }).route.bind(fastify);
+
   const authenticateController = new AuthenticateController();
   const registerController = new RegisterController();
   const refreshTokenController = new RefreshTokenController();
@@ -19,28 +22,28 @@ export const configure = (fastify: FastifyInstance) => {
   const uploadImageController = new UploadUserAvatarController();
   const checkAuthenticated = new CheckAuthtenticationMiddleware();
 
-  fastify.route({
+  route({
     url: "/auth/register",
     method: "post",
     handler: registerController.execute,
     schema: registerSchema,
   });
 
-  fastify.route({
+  route({
     url: "/auth/login",
     method: "post",
     handler: authenticateController.execute,
     schema: loginSchema,
   });
 
-  fastify.route({
+  route({
     url: "/auth/refresh",
     method: "post",
     handler: refreshTokenController.execute,
     schema: refreshTokenSchema,
   });
 
-  fastify.route({
+  route({
     url: "/user",
     method: "put",
     handler: updateUserData.execute,
@@ -48,7 +51,7 @@ export const configure = (fastify: FastifyInstance) => {
     schema: updateUserDataSchema,
   });
 
-  fastify.route({
+  route({
     url: "/user/avatar",
     method: "post",
     handler: uploadImageController.execute,

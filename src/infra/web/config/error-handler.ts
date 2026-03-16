@@ -9,8 +9,27 @@ import { NotFoundError } from "../../../shared/errors/not-found.error";
 import { DatabaseError } from "../../../shared/errors/database.error";
 import { JWTError } from "../../../shared/errors/jwt.error";
 
+type ErrorHandlerError = Error & {
+  statusCode?: number;
+  validation?: Array<{ message: string }>;
+};
+
+/** Interface mínima para o reply do Fastify (evita dependência dos tipos do fastify na build). */
+interface ReplyWithStatus {
+  status(code: number): { send(body: object): unknown };
+}
+
+/** Envia resposta HTTP; usa cast explícito para evitar erro de tipo em builds (ex.: Vercel). */
+function sendReply(replyParam: unknown, code: number, body: object): void {
+  (replyParam as ReplyWithStatus).status(code).send(body);
+}
+
+type FastifyWithErrorHandler = FastifyInstance & {
+  setErrorHandler: (handler: (error: ErrorHandlerError, request: unknown, reply: unknown) => void | Promise<void>) => void;
+};
+
 export const configure = (fastify: FastifyInstance) => {
-  fastify.setErrorHandler((error, request, reply) => {
+  (fastify as FastifyWithErrorHandler).setErrorHandler((error: ErrorHandlerError, _request: unknown, replyParam: unknown) => {
     if (
       (error instanceof AppError && error.getShouldPrintInConsole()) ||
       !(error instanceof AppError)
@@ -19,20 +38,18 @@ export const configure = (fastify: FastifyInstance) => {
     }
 
     if (error instanceof HttpError) {
-      return reply.status(error.statusCode).send({
-        message: error.message,
-      });
+      return sendReply(replyParam, error.getStatusCode(), { message: error.message });
     }
 
     if (error instanceof BusinessError) {
-      return reply.status(400).send({
+      return sendReply(replyParam, 400, {
         message: error.message,
         internalErrorCode: error.getAppInternalCode(),
       });
     }
 
     if (error instanceof JWTError) {
-      return reply.status(401).send({
+      return sendReply(replyParam, 401, {
         message: error.message,
         errorType: error.getErrorType(),
         code: "JWT_ERROR",
@@ -40,31 +57,23 @@ export const configure = (fastify: FastifyInstance) => {
     }
 
     if (error instanceof UnauthenticatedError) {
-      return reply.status(401).send({
-        message: error.message,
-      });
+      return sendReply(replyParam, 401, { message: error.message });
     }
 
     if (error instanceof ForbiddenError) {
-      return reply.status(403).send({
-        message: error.message,
-      });
+      return sendReply(replyParam, 403, { message: error.message });
     }
 
     if (error instanceof NotFoundError) {
-      return reply.status(404).send({
-        message: error.message,
-      });
+      return sendReply(replyParam, 404, { message: error.message });
     }
 
     if (error instanceof DatabaseError) {
-      return reply.status(500).send({
-        message: error.message,
-      });
+      return sendReply(replyParam, 500, { message: error.message });
     }
 
     if (error instanceof UnprocessedEntityError) {
-      return reply.status(error.getStatusCode()).send({
+      return sendReply(replyParam, error.getStatusCode(), {
         message: error.message,
         errors: error.getErrors(),
       });
@@ -72,21 +81,13 @@ export const configure = (fastify: FastifyInstance) => {
 
     if (error.validation) {
       const messages = error.validation.map((e) => e.message);
-
-      return reply.status(422).send({
-        message: "Validation error",
-        errors: messages,
-      });
+      return sendReply(replyParam, 422, { message: "Validation error", errors: messages });
     }
 
-    if (error.statusCode === 429) {
-      return reply.status(429).send({
-        message: error.message,
-      });
+    if ("statusCode" in error && (error as { statusCode: number }).statusCode === 429) {
+      return sendReply(replyParam, 429, { message: error.message });
     }
 
-    return reply.status(500).send({
-      message: "Server error.",
-    });
+    return sendReply(replyParam, 500, { message: "Server error." });
   });
 };
